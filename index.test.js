@@ -32,7 +32,7 @@ describe('User', () => {
     })
 
     afterAll(async () => {
-        server.close()
+        await new Promise((resolve) => server.close(resolve))
     })
 
     test('Get users', async () => {

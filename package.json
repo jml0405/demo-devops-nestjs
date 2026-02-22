@@ -14,6 +14,7 @@
     "transform": {
       "^.+\\.js?$": "babel-jest"
     },
+    "forceExit": true,
     "coverageThreshold": {
       "global": {
         "lines": 80,
