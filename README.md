@@ -106,26 +106,44 @@ curl -X POST http://localhost:8000/api/users \
 
 ## CI/CD Pipeline
 
-The pipeline is defined in [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml) and runs on every push and PR to `main`.
+The pipeline is split into two separate workflows:
 
-| Stage | Tool | Trigger |
+### [`ci.yml`](.github/workflows/ci.yml) – Continuous Integration
+
+Runs on every **push** and **pull request** to `main`.
+
+| Stage | Tool | Notes |
 |---|---|---|
-| Code Build | `npm ci` | Every push / PR |
-| Static Analysis | ESLint | Every push / PR |
-| Unit Tests | Jest | Every push / PR |
-| Code Coverage | Jest `--coverage` (≥80%) | Every push / PR |
-| Docker Build & Push | Docker Hub | Push to `main` only |
-| Deploy to Kubernetes | `kubectl apply` | Push to `main` only |
+| Code Build | `npm ci` | Installs dependencies |
+| Static Analysis | ESLint | Zero warnings allowed |
+| Unit Tests | Jest | All tests must pass |
+| Code Coverage | Jest `--coverage` | ≥80% stmts/lines, ≥70% branches |
+
+### [`release.yml`](.github/workflows/release.yml) – Release & Deploy
+
+Runs on **semver tags** (`v1.0.0`) or **manual dispatch** from the Actions UI.
+
+| Stage | Tool | Notes |
+|---|---|---|
+| Docker Build & Push | Docker Hub | Tags `v1.0.0` and `latest` |
+| Deploy to Kubernetes | Terraform | `terraform apply -auto-approve` |
+
+#### Create a release
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
 
 ### Required GitHub Secrets
 
-| Secret | Description |
-|---|---|
-| `DOCKERHUB_USERNAME` | Docker Hub username |
-| `DOCKERHUB_TOKEN` | Docker Hub access token |
-| `KUBE_CONFIG` | base64-encoded kubeconfig for target cluster |
-| `DB_USER` | Database user (passed as `TF_VAR_database_user`) |
-| `DB_PASSWORD` | Database password (passed as `TF_VAR_database_password`) |
+| Secret | Used by | Description |
+|---|---|---|
+| `DOCKERHUB_USERNAME` | release.yml | Docker Hub username |
+| `DOCKERHUB_TOKEN` | release.yml | Docker Hub access token |
+| `KUBE_CONFIG` | release.yml | `base64 -w0 ~/.kube/config` |
+| `DB_USER` | release.yml | Passed as `TF_VAR_database_user` |
+| `DB_PASSWORD` | release.yml | Passed as `TF_VAR_database_password` |
 
 ---
 
