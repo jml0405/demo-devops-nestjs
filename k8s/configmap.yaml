@@ -1,9 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: devsu-demo-config
-  namespace: devsu-demo
-data:
-  PORT: "8000"
-  NODE_ENV: "production"
-  DATABASE_NAME: "./dev.sqlite"

@@ -90,16 +90,6 @@ resource "kubernetes_deployment" "devsu_demo" {
             failure_threshold     = 3
           }
 
-          volume_mount {
-            name       = "sqlite-data"
-            mount_path = "/app"
-            sub_path   = "data"
-          }
-        }
-
-        volume {
-          name = "sqlite-data"
-          empty_dir {}
         }
       }
     }

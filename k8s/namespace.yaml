@@ -1,6 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: devsu-demo
-  labels:
-    app: devsu-demo-nodejs
