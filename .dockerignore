@@ -1,0 +1,12 @@
+node_modules
+npm-debug.log
+*.sqlite
+*.db
+.env
+coverage
+.nyc_output
+.git
+.gitignore
+.github
+k8s
+*.md
