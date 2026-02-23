@@ -11,7 +11,6 @@ resource "kubernetes_secret" "devsu_demo" {
 
   type = "Opaque"
 
-  # The provider accepts plain text and handles base64 encoding for Secret data.
   data = {
     DATABASE_USER     = var.database_user
     DATABASE_PASSWORD = var.database_password

@@ -9,7 +9,6 @@ terraform {
   }
 }
 
-# Uses the local kubeconfig (works with minikube out of the box)
 provider "kubernetes" {
   config_path    = var.kubeconfig_path
   config_context = var.kubeconfig_context

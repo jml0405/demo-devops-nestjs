@@ -5,9 +5,7 @@ instance_type = "t3.micro"
 image_name = "jml0405/devsu-demo-nodejs"
 image_tag  = "latest"
 
-# Keep this as 80 for a cleaner public endpoint URL.
 public_port = 80
 app_port    = 8000
 
-# For a private test, replace with your own IP CIDR (x.x.x.x/32).
 allowed_cidrs = ["0.0.0.0/0"]

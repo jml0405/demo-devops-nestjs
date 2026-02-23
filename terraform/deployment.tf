@@ -15,7 +15,6 @@ resource "kubernetes_deployment" "devsu_demo" {
     strategy {
       type = "RollingUpdate"
       rolling_update {
-        # Avoid requiring an extra pod during rollout on resource-constrained Minikube.
         max_surge       = "0"
         max_unavailable = "1"
       }
@@ -35,7 +34,6 @@ resource "kubernetes_deployment" "devsu_demo" {
       }
 
       spec {
-        # Run as non-root (matches Dockerfile USER node, uid=1000)
         security_context {
           run_as_non_root = true
           run_as_user     = 1000
@@ -52,14 +50,12 @@ resource "kubernetes_deployment" "devsu_demo" {
             container_port = var.port
           }
 
-          # Inject non-sensitive config from ConfigMap
           env_from {
             config_map_ref {
               name = kubernetes_config_map.devsu_demo.metadata[0].name
             }
           }
 
-          # Inject credentials from Secret
           env_from {
             secret_ref {
               name = kubernetes_secret.devsu_demo.metadata[0].name
@@ -77,7 +73,6 @@ resource "kubernetes_deployment" "devsu_demo" {
             }
           }
 
-          # Liveness probe – restart container if it stops responding
           liveness_probe {
             http_get {
               path = "/api/users"
@@ -88,7 +83,6 @@ resource "kubernetes_deployment" "devsu_demo" {
             failure_threshold     = 3
           }
 
-          # Readiness probe – only send traffic once the app is up
           readiness_probe {
             http_get {
               path = "/api/users"
@@ -104,7 +98,6 @@ resource "kubernetes_deployment" "devsu_demo" {
     }
   }
 
-  # Wait for rollout to complete before Terraform considers apply done
   wait_for_rollout = true
 
   timeouts {

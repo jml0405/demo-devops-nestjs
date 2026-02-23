@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-# =============================================================================
-# deploy-local.sh – One-shot setup for Terraform + Minikube local deploy
-# Run this script from a terminal WITH sudo access:
-#   chmod +x deploy-local.sh && ./deploy-local.sh
-# =============================================================================
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -15,7 +10,6 @@ echo "========================================"
 echo " Devsu Demo – Local Minikube Deploy"
 echo "========================================"
 
-# ── 1. Fix Docker socket permissions ─────────────────────────────────────────
 echo "[1/6] Fixing Docker group membership..."
 if ! groups "$USER" | grep -q docker; then
   sudo usermod -aG docker "$USER"
@@ -27,7 +21,6 @@ else
   echo "  ✓ $USER already in docker group."
 fi
 
-# ── 2. Install Terraform ──────────────────────────────────────────────────────
 echo "[2/6] Installing Terraform..."
 if command -v terraform &>/dev/null; then
   echo "  ✓ Terraform $(terraform version -json | python3 -c 'import sys,json; print(json.load(sys.stdin)["terraform_version"])') already installed."
@@ -36,7 +29,6 @@ else
   echo "  ✓ Terraform installed: $(terraform version --json | python3 -c 'import sys,json; print(json.load(sys.stdin)["terraform_version"])')"
 fi
 
-# ── 3. Start Minikube ─────────────────────────────────────────────────────────
 echo "[3/6] Starting Minikube..."
 if minikube status --format='{{.Host}}' 2>/dev/null | grep -q Running; then
   echo "  ✓ Minikube already running."
@@ -45,21 +37,17 @@ else
   echo "  ✓ Minikube started."
 fi
 
-# Enable nginx ingress addon
 minikube addons enable ingress
 echo "  ✓ Ingress addon enabled."
 
-# ── 4. Build Docker image inside Minikube's Docker daemon ───────────────────
 echo "[4/6] Building Docker image inside Minikube..."
 eval "$(minikube docker-env)"
 docker build -t "${IMAGE_NAME}:${IMAGE_TAG}" "${PROJECT_DIR}"
 echo "  ✓ Image ${IMAGE_NAME}:${IMAGE_TAG} built."
 
-# ── 5. Deploy via Terraform ───────────────────────────────────────────────────
 echo "[5/6] Running Terraform apply..."
 cd "${PROJECT_DIR}/terraform"
 
-# Create tfvars for local deploy (not committed – in .gitignore)
 cat > terraform.tfvars <<EOF
 image_name        = "${IMAGE_NAME}"
 image_tag         = "${IMAGE_TAG}"
@@ -73,7 +61,6 @@ terraform apply -auto-approve
 
 echo "  ✓ Terraform apply complete."
 
-# ── 6. Verify ────────────────────────────────────────────────────────────────
 echo "[6/6] Verifying deployment..."
 kubectl rollout status deployment/devsu-demo-deployment -n "${NAMESPACE}" --timeout=120s
 echo ""

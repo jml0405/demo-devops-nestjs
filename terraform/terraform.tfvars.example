@@ -1,22 +1,8 @@
-# Copy this file to terraform.tfvars and fill in your values
-# Do NOT commit terraform.tfvars to source control if it contains real credentials
-
-# Kubernetes context (leave empty to use current context)
-# kubeconfig_context = "minikube"
-
-# Docker image (set by CI/CD or manually)
 image_name = "jml0405/devsu-demo-nodejs"
 image_tag  = "latest"
 
-# Namespace
 namespace = "devsu-demo"
 
-# Application port
 port = 8000
 
-# Database config (DATABASE_NAME goes to ConfigMap – not sensitive)
 database_name = "./dev.sqlite"
-
-# Credentials (sensitive – override via env vars in CI/CD)
-# database_user     = "user"
-# database_password = "password"

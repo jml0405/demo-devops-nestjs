@@ -34,10 +34,5 @@ resource "kubernetes_ingress_v1" "devsu_demo" {
       }
     }
 
-    # Uncomment and set tls_secret_name for production TLS
-    # tls {
-    #   hosts       = ["devsu-demo.local"]
-    #   secret_name = "devsu-demo-tls"
-    # }
   }
 }

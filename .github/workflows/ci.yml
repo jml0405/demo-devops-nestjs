@@ -11,7 +11,6 @@ env:
   IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/devsu-demo-nodejs
 
 jobs:
-  # ── 1. Code Build ───────────────────────────────────────────────────────────
   build:
     name: Code Build
     runs-on: ubuntu-latest
@@ -32,7 +31,6 @@ jobs:
           path: node_modules
           key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
 
-  # ── 2. Static Code Analysis ─────────────────────────────────────────────────
   lint:
     name: Static Code Analysis (ESLint)
     runs-on: ubuntu-latest
@@ -47,7 +45,6 @@ jobs:
       - name: Run ESLint
         run: npm run lint
 
-  # ── 3. Unit Tests ───────────────────────────────────────────────────────────
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
@@ -62,7 +59,6 @@ jobs:
       - name: Run unit tests
         run: npm test
 
-  # ── 4. Code Coverage ────────────────────────────────────────────────────────
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
@@ -83,7 +79,6 @@ jobs:
           path: coverage/
           retention-days: 7
 
-  # ── 5. Vulnerability Scan ───────────────────────────────────────────────────
   trivy_fs:
     name: Vulnerability Scan (Trivy FS)
     runs-on: ubuntu-latest
@@ -110,7 +105,6 @@ jobs:
           path: trivy-fs-report.txt
           retention-days: 7
 
-  # ── 6. Docker Build, Push & Image Scan ─────────────────────────────────────
   docker:
     name: Docker Build & Push
     runs-on: ubuntu-latest

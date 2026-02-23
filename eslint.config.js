@@ -2,7 +2,6 @@ import js from '@eslint/js'
 
 export default [
     js.configs.recommended,
-    // ── Node.js globals for all source files ─────────────────────────────────
     {
         languageOptions: {
             globals: {
@@ -25,7 +24,6 @@ export default [
             'quotes': ['error', 'single'],
         },
     },
-    // ── Jest globals for test files ───────────────────────────────────────────
     {
         files: ['**/*.test.js', '**/*.spec.js'],
         languageOptions: {

@@ -36,8 +36,6 @@ describe('User', () => {
         await new Promise((resolve) => server.close(resolve))
     })
 
-    // ── GET /api/users ──────────────────────────────────────────────────────
-
     test('Get users', async () => {
         jest.spyOn(User, 'findAll').mockResolvedValue([data])
         const response = await request(app).get('/api/users')
@@ -53,8 +51,6 @@ describe('User', () => {
         expect(response.status).toBe(500)
         expect(response.body).toEqual({ error: 'Internal Server Error' })
     })
-
-    // ── GET /api/users/:id ──────────────────────────────────────────────────
 
     test('Get user', async () => {
         jest.spyOn(User, 'findByPk').mockResolvedValue({ ...data, 'id': 1 })
@@ -85,8 +81,6 @@ describe('User', () => {
         expect(response.status).toBe(500)
         expect(response.body).toEqual({ error: 'Internal Server Error' })
     })
-
-    // ── POST /api/users ─────────────────────────────────────────────────────
 
     test('Create user', async () => {
         jest.spyOn(User, 'findOne').mockResolvedValue(null)
