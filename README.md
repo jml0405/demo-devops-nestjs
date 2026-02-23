@@ -11,20 +11,27 @@ Built with **Node.js 18**, **Express**, and **SQLite** (via Sequelize).
 flowchart TD
     Dev[Developer] -->|git push / PR| GH[GitHub]
 
-    subgraph CI ["GitHub Actions – CI/CD Pipeline"]
+    subgraph CI ["GitHub Actions – CI"]
         direction TB
         B[Code Build\nnpm ci] --> L[Static Analysis\nESLint]
         B --> T[Unit Tests\nJest]
         T --> C[Code Coverage\nJest --coverage]
-        L & C --> D[Docker Build & Push\nDocker Hub]
-        D --> K[Deploy to Kubernetes\nkubectl apply]
+        L & C --> V[Vulnerability Scan\nTrivy]
+        V --> D[Docker Build & Push\nDocker Hub]
+    end
+
+    subgraph REL ["GitHub Actions – Release"]
+        direction TB
+        W[workflow_run\nCI success on main] --> I[Terraform Init + Import]
+        I --> A[Terraform Apply\nMinikube]
     end
 
     GH --> CI
+    CI --> REL
 
-    subgraph K8S ["Kubernetes Cluster (devsu-demo namespace)"]
+    subgraph K8S ["Kubernetes Cluster (namespace: devsu-demo)"]
         direction LR
-        ING[Ingress\nnginx] --> SVC[Service\nClusterIP :8000]
+        ING[Ingress] --> SVC[Service\nClusterIP :8000]
         SVC --> P1[Pod 1]
         SVC --> P2[Pod 2]
         HPA[HPA\nmin:2 / max:5] -.scales.-> DEP[Deployment]
@@ -32,7 +39,7 @@ flowchart TD
         SEC[Secret] -.env.-> P1 & P2
     end
 
-    K --> K8S
+    A --> K8S
 ```
 
 ---
@@ -118,15 +125,21 @@ Runs on every **push** and **pull request** to `main`.
 | Static Analysis | ESLint | Zero warnings allowed |
 | Unit Tests | Jest | All tests must pass |
 | Code Coverage | Jest `--coverage` | ≥80% stmts/lines, ≥70% branches |
+| Vulnerability Scan (FS) | Trivy | Scans repository filesystem and uploads report artifact |
 | Docker Build & Push | Docker Hub | Image tag computed by `scripts/compute_image_tag.py` |
+| Vulnerability Scan (Image) | Trivy | Scans pushed image and uploads report artifact |
 
 ### [`release.yml`](.github/workflows/release.yml) – Release to Minikube
 
-Runs automatically when the CI workflow completes successfully.
+Runs automatically only when CI completed successfully from a **push to `main`** (`workflow_run`).
 
 | Stage | Tool | Notes |
 |---|---|---|
+| Compute image tag from CI metadata | Bash | Reconstructs same tag generated in CI |
+| Terraform init | Terraform | Initializes providers |
+| Import existing resources | Terraform | Idempotent import to avoid recreate conflicts |
 | Deploy to Kubernetes | Terraform | `terraform apply -auto-approve` with the CI image tag |
+| Post-deploy verification | `minikube kubectl` | Checks rollout status and lists pods |
 
 ### Required GitHub Secrets
 
@@ -136,6 +149,12 @@ Runs automatically when the CI workflow completes successfully.
 | `DOCKERHUB_TOKEN` | ci.yml | Docker Hub access token |
 | `DB_USER` | release.yml | Passed as `TF_VAR_database_user` |
 | `DB_PASSWORD` | release.yml | Passed as `TF_VAR_database_password` |
+
+### Pipeline Evidence (for submission)
+
+- CI run URL: `<paste-github-actions-ci-run-url>`
+- Release run URL: `<paste-github-actions-release-run-url>`
+- Trivy artifacts: `trivy-fs-report`, `trivy-image-report`
 
 ---
 
@@ -189,32 +208,40 @@ terraform destroy -auto-approve
 
 ## Kubernetes Deployment
 
-### Local (minikube)
+### Local (minikube + terraform)
 
 ```bash
 # Start minikube with ingress
 minikube start
 minikube addons enable ingress
+kubectl config use-context minikube
 
-# Deploy everything
-kubectl apply -f k8s/namespace.yaml
-kubectl apply -f k8s/configmap.yaml
-kubectl apply -f k8s/secret.yaml
-kubectl apply -f k8s/deployment.yaml
-kubectl apply -f k8s/service.yaml
-kubectl apply -f k8s/hpa.yaml
-kubectl apply -f k8s/ingress.yaml
+# Deploy with Terraform
+cd terraform/
+terraform init
+terraform apply -auto-approve \
+  -var="image_name=<dockerhub_user>/devsu-demo-nodejs" \
+  -var="image_tag=latest" \
+  -var="database_user=user" \
+  -var="database_password=password" \
+  -var="kubeconfig_context=minikube"
 
 # Verify pods (should show 2 Running)
-kubectl get pods -n devsu-demo
+minikube kubectl -- get pods -n devsu-demo
 
 # Check HPA
-kubectl get hpa -n devsu-demo
+minikube kubectl -- get hpa -n devsu-demo
+
+# Check ingress
+minikube kubectl -- get ingress -n devsu-demo
 
 # Access via port-forward
-kubectl port-forward svc/devsu-demo-svc 8000:8000 -n devsu-demo
+minikube kubectl -- port-forward svc/devsu-demo-svc 8000:8000 -n devsu-demo
 curl http://localhost:8000/api/users
 ```
+
+> This project is deployed to **local Minikube** for the technical test.  
+> Public endpoint URL: `N/A (local environment)`
 
 ### Kubernetes Resources
 
@@ -227,6 +254,23 @@ curl http://localhost:8000/api/users
 | HPA | `devsu-demo-hpa` | Min 2 / Max 5 pods, CPU 70% / Mem 80% |
 | Service | `devsu-demo-svc` | ClusterIP on port 8000 |
 | Ingress | `devsu-demo-ingress` | nginx, host `devsu-demo.local` |
+
+---
+
+## Requirement Checklist
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| Public GitHub repository with versioned code | Complete | Repository history and workflows |
+| Dockerized app (`env`, non-root user, port, healthcheck) | Complete | `Dockerfile` |
+| Pipeline with build, tests, lint, coverage, docker build/push | Complete | `.github/workflows/ci.yml` |
+| Vulnerability scan (optional) | Complete | Trivy jobs and artifacts in CI |
+| Kubernetes deploy from pipeline | Complete | `.github/workflows/release.yml` |
+| Kubernetes resources (ConfigMap, Secret, Ingress, HPA, etc.) | Complete | `terraform/*.tf` |
+| At least 2 replicas and horizontal scaling | Complete | `terraform/deployment.tf`, `terraform/hpa.tf` |
+| README with diagrams and deployment details | Complete | This file |
+| Public endpoint URL | Not applicable | Local Minikube deployment only |
+| `.zip` / `.rar` deliverable for submission | Pending manual step | Generate and attach before final submission |
 
 ---
 
