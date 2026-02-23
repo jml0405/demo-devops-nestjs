@@ -137,3 +137,7 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
+
+# Local AWS helper files (credentials/policies)
+gha-ec2-policy.json
+gha-key.json

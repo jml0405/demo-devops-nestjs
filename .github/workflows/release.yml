@@ -1,5 +1,5 @@
-name: Release – Deploy to Minikube
-run-name: Release #${{ github.run_number }} · Deploy to Minikube
+name: Release – Deploy to AWS EC2
+run-name: Release #${{ github.run_number }} · AWS EC2
 
 on:
   workflow_run:
@@ -7,86 +7,219 @@ on:
       - 'CI – Continuous Integration'
     types:
       - completed
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Operation to execute"
+        type: choice
+        required: true
+        default: deploy
+        options:
+          - deploy
+          - destroy
+      image_tag:
+        description: "Docker image tag to deploy (optional for deploy)"
+        required: false
+        default: ""
+      aws_region:
+        description: "AWS region"
+        required: true
+        default: us-east-2
+      instance_type:
+        description: "EC2 instance type"
+        required: true
+        default: t3.micro
+      allowed_cidr:
+        description: "CIDR allowed to access the app"
+        required: true
+        default: 0.0.0.0/0
 
 permissions:
-  actions: read
   contents: read
+
+concurrency:
+  group: aws-release-main
+  cancel-in-progress: false
 
 env:
   IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/devsu-demo-nodejs
+  DEFAULT_AWS_REGION: us-east-2
+  DEFAULT_INSTANCE_TYPE: t3.micro
+  DEFAULT_ALLOWED_CIDR: 0.0.0.0/0
 
 jobs:
   deploy:
-    name: Deploy to Kubernetes (local Minikube)
+    name: Deploy to AWS EC2
     if: >-
-      ${{ github.event.workflow_run.conclusion == 'success' &&
+      ${{ (github.event_name == 'workflow_run' &&
+          github.event.workflow_run.conclusion == 'success' &&
           github.event.workflow_run.event == 'push' &&
-          github.event.workflow_run.head_branch == 'main' }}
-    runs-on: self-hosted
+          github.event.workflow_run.head_branch == 'main') ||
+          (github.event_name == 'workflow_dispatch' && inputs.action != 'destroy') }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Compute image tag from CI metadata
-        id: image_tag
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ github.event_name == 'workflow_dispatch' && inputs.aws_region || env.DEFAULT_AWS_REGION }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Resolve release parameters
         run: |
-          VERSION=$(awk -F'"' '/"version"/ {print $4; exit}' package.json)
-          CI_RUN_NUMBER="${{ github.event.workflow_run.run_number }}"
-          CI_SHA="${{ github.event.workflow_run.head_sha }}"
-          CI_SHORT_SHA="${CI_SHA:0:7}"
-          IMAGE_TAG="v${VERSION}-${CI_RUN_NUMBER}-${CI_SHORT_SHA}"
+          EVENT_NAME="${{ github.event_name }}"
+          INPUT_IMAGE_TAG="${{ inputs.image_tag }}"
+          INPUT_AWS_REGION="${{ inputs.aws_region }}"
+          INPUT_INSTANCE_TYPE="${{ inputs.instance_type }}"
+          INPUT_ALLOWED_CIDR="${{ inputs.allowed_cidr }}"
+
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
+            VERSION=$(awk -F'"' '/"version"/ {print $4; exit}' package.json)
+            CI_RUN_NUMBER="${{ github.event.workflow_run.run_number }}"
+            CI_SHA="${{ github.event.workflow_run.head_sha }}"
+            CI_SHORT_SHA="${CI_SHA:0:7}"
+            IMAGE_TAG="v${VERSION}-${CI_RUN_NUMBER}-${CI_SHORT_SHA}"
+            SOURCE_CI_RUN="$CI_RUN_NUMBER"
+            SOURCE_SHA="$CI_SHA"
+          else
+            IMAGE_TAG="${INPUT_IMAGE_TAG:-latest}"
+            SOURCE_CI_RUN="manual"
+            SOURCE_SHA="${{ github.sha }}"
+          fi
+
+          AWS_REGION="${INPUT_AWS_REGION:-$DEFAULT_AWS_REGION}"
+          INSTANCE_TYPE="${INPUT_INSTANCE_TYPE:-$DEFAULT_INSTANCE_TYPE}"
+          ALLOWED_CIDR="${INPUT_ALLOWED_CIDR:-$DEFAULT_ALLOWED_CIDR}"
           IMAGE_REF="${{ env.IMAGE_NAME }}:${IMAGE_TAG}"
-          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "IMAGE_REF=$IMAGE_REF" >> $GITHUB_ENV
-          echo "TF_VAR_image_tag=$IMAGE_TAG" >> $GITHUB_ENV
+          echo "AWS_REGION=$AWS_REGION" >> $GITHUB_ENV
+          echo "INSTANCE_TYPE=$INSTANCE_TYPE" >> $GITHUB_ENV
+          echo "ALLOWED_CIDR=$ALLOWED_CIDR" >> $GITHUB_ENV
+          echo "SOURCE_CI_RUN=$SOURCE_CI_RUN" >> $GITHUB_ENV
+          echo "SOURCE_SHA=$SOURCE_SHA" >> $GITHUB_ENV
           echo "::notice title=Release image version::$IMAGE_REF"
 
-      - name: Terraform Init
-        working-directory: terraform
-        run: terraform init
-
-      - name: Import existing resources (idempotent)
-        working-directory: terraform
+      - name: Terraform Init (S3 backend)
         run: |
-          import_resource() {
-            terraform import -input=false "$1" "$2" || true
-          }
-
-          import_resource kubernetes_namespace.devsu_demo devsu-demo
-          import_resource kubernetes_config_map.devsu_demo devsu-demo/devsu-demo-config
-          import_resource kubernetes_secret.devsu_demo devsu-demo/devsu-demo-secret
-          import_resource kubernetes_deployment.devsu_demo devsu-demo/devsu-demo-deployment
-          import_resource kubernetes_service.devsu_demo devsu-demo/devsu-demo-svc
-          import_resource kubernetes_horizontal_pod_autoscaler_v2.devsu_demo devsu-demo/devsu-demo-hpa
-          import_resource kubernetes_ingress_v1.devsu_demo devsu-demo/devsu-demo-ingress
+          terraform -chdir=terraform-aws init \
+            -backend-config="bucket=${{ secrets.AWS_TF_STATE_BUCKET }}" \
+            -backend-config="key=devsu-demo-nodejs/aws/terraform.tfstate" \
+            -backend-config="region=$AWS_REGION" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
 
       - name: Terraform Apply
-        working-directory: terraform
-        env:
-          TF_VAR_image_name: ${{ env.IMAGE_NAME }}
-          TF_VAR_database_user: ${{ secrets.DB_USER }}
-          TF_VAR_database_password: ${{ secrets.DB_PASSWORD }}
-          TF_VAR_kubeconfig_context: "minikube"
-        run: terraform apply -auto-approve
-
-      - name: Verify rollout
         run: |
-          minikube kubectl -- rollout status deployment/devsu-demo-deployment \
-            -n devsu-demo --timeout=120s
+          terraform -chdir=terraform-aws apply -auto-approve \
+            -var="aws_region=$AWS_REGION" \
+            -var="instance_type=$INSTANCE_TYPE" \
+            -var="image_name=${{ env.IMAGE_NAME }}" \
+            -var="image_tag=$IMAGE_TAG" \
+            -var='allowed_cidrs=["'$ALLOWED_CIDR'"]'
 
-      - name: Show pods
-        run: minikube kubectl -- get pods -n devsu-demo -o wide
+      - name: Capture outputs
+        id: tf_output
+        run: |
+          ENDPOINT=$(terraform -chdir=terraform-aws output -raw public_endpoint)
+          PUBLIC_IP=$(terraform -chdir=terraform-aws output -raw public_ip)
+          IMAGE_DEPLOYED=$(terraform -chdir=terraform-aws output -raw image_deployed)
+          terraform -chdir=terraform-aws output -json > terraform-aws-output.json
 
-      - name: Release version summary
+          echo "endpoint=$ENDPOINT" >> $GITHUB_OUTPUT
+          echo "public_ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
+          echo "image_deployed=$IMAGE_DEPLOYED" >> $GITHUB_OUTPUT
+          echo "::notice title=AWS endpoint::$ENDPOINT"
+
+      - name: Upload AWS outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-terraform-output-${{ env.IMAGE_TAG }}
+          path: terraform-aws-output.json
+          retention-days: 14
+
+      - name: Release summary
         if: always()
         run: |
           {
-            echo "## Release Version"
+            echo "## AWS Release"
             echo ""
-            echo "- Image: \`${{ env.IMAGE_REF }}\`"
-            echo "- Source CI run: \`${{ github.event.workflow_run.run_number }}\`"
-            echo "- Source commit: \`${{ github.event.workflow_run.head_sha }}\`"
-            echo "- Namespace: \`devsu-demo\`"
+            echo "- Trigger: \`${{ github.event_name }}\`"
+            echo "- Image: \`${{ steps.tf_output.outputs.image_deployed }}\`"
+            echo "- Source CI run: \`$SOURCE_CI_RUN\`"
+            echo "- Source commit: \`$SOURCE_SHA\`"
+            echo "- Region: \`$AWS_REGION\`"
+            echo "- Instance type: \`$INSTANCE_TYPE\`"
+            echo "- Public IP: \`${{ steps.tf_output.outputs.public_ip }}\`"
+            echo "- Endpoint: ${{ steps.tf_output.outputs.endpoint }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  destroy:
+    name: Destroy AWS EC2 deployment
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'destroy' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Resolve destroy parameters
+        run: |
+          AWS_REGION="${{ inputs.aws_region }}"
+          INSTANCE_TYPE="${{ inputs.instance_type }}"
+          ALLOWED_CIDR="${{ inputs.allowed_cidr }}"
+          IMAGE_TAG="${{ inputs.image_tag }}"
+
+          AWS_REGION="${AWS_REGION:-$DEFAULT_AWS_REGION}"
+          INSTANCE_TYPE="${INSTANCE_TYPE:-$DEFAULT_INSTANCE_TYPE}"
+          ALLOWED_CIDR="${ALLOWED_CIDR:-$DEFAULT_ALLOWED_CIDR}"
+          IMAGE_TAG="${IMAGE_TAG:-latest}"
+
+          echo "AWS_REGION=$AWS_REGION" >> $GITHUB_ENV
+          echo "INSTANCE_TYPE=$INSTANCE_TYPE" >> $GITHUB_ENV
+          echo "ALLOWED_CIDR=$ALLOWED_CIDR" >> $GITHUB_ENV
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Terraform Init (S3 backend)
+        run: |
+          terraform -chdir=terraform-aws init \
+            -backend-config="bucket=${{ secrets.AWS_TF_STATE_BUCKET }}" \
+            -backend-config="key=devsu-demo-nodejs/aws/terraform.tfstate" \
+            -backend-config="region=$AWS_REGION" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+
+      - name: Terraform Destroy
+        run: |
+          terraform -chdir=terraform-aws destroy -auto-approve \
+            -var="aws_region=$AWS_REGION" \
+            -var="instance_type=$INSTANCE_TYPE" \
+            -var="image_name=${{ env.IMAGE_NAME }}" \
+            -var="image_tag=$IMAGE_TAG" \
+            -var='allowed_cidrs=["'$ALLOWED_CIDR'"]'
+
+      - name: Destroy summary
+        if: always()
+        run: |
+          {
+            echo "## AWS Destroy"
+            echo ""
+            echo "- Region: \`$AWS_REGION\`"
+            echo "- Resources: \`destroyed\`"
           } >> "$GITHUB_STEP_SUMMARY"
