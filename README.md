@@ -129,6 +129,11 @@ Runs on every **push** and **pull request** to `main`.
 | Docker Build & Push | Docker Hub | Image tag computed by `scripts/compute_image_tag.py` |
 | Vulnerability Scan (Image) | Trivy | Scans pushed image and uploads report artifact |
 
+Versioning visibility in Actions:
+- `run-name` includes run number and branch.
+- Workflow `Summary` includes the final image tag (`image:tag`).
+- Artifact `image-metadata-<tag>` stores image tag, image ref, commit and run metadata.
+
 ### [`release.yml`](.github/workflows/release.yml) – Release to Minikube
 
 Runs automatically only when CI completed successfully from a **push to `main`** (`workflow_run`).
@@ -140,6 +145,9 @@ Runs automatically only when CI completed successfully from a **push to `main`**
 | Import existing resources | Terraform | Idempotent import to avoid recreate conflicts |
 | Deploy to Kubernetes | Terraform | `terraform apply -auto-approve` with the CI image tag |
 | Post-deploy verification | `minikube kubectl` | Checks rollout status and lists pods |
+
+Release visibility in Actions:
+- Workflow `Summary` shows the deployed image tag and source CI run number.
 
 ### Required GitHub Secrets
 

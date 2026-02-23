@@ -1,4 +1,5 @@
 name: Release – Deploy to Minikube
+run-name: Release #${{ github.run_number }} · Deploy to Minikube
 
 on:
   workflow_run:
@@ -28,14 +29,19 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Compute image tag from CI metadata
+        id: image_tag
         run: |
           VERSION=$(awk -F'"' '/"version"/ {print $4; exit}' package.json)
           CI_RUN_NUMBER="${{ github.event.workflow_run.run_number }}"
           CI_SHA="${{ github.event.workflow_run.head_sha }}"
           CI_SHORT_SHA="${CI_SHA:0:7}"
           IMAGE_TAG="v${VERSION}-${CI_RUN_NUMBER}-${CI_SHORT_SHA}"
+          IMAGE_REF="${{ env.IMAGE_NAME }}:${IMAGE_TAG}"
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          echo "IMAGE_REF=$IMAGE_REF" >> $GITHUB_ENV
           echo "TF_VAR_image_tag=$IMAGE_TAG" >> $GITHUB_ENV
+          echo "::notice title=Release image version::$IMAGE_REF"
 
       - name: Terraform Init
         working-directory: terraform
@@ -72,3 +78,15 @@ jobs:
 
       - name: Show pods
         run: minikube kubectl -- get pods -n devsu-demo -o wide
+
+      - name: Release version summary
+        if: always()
+        run: |
+          {
+            echo "## Release Version"
+            echo ""
+            echo "- Image: \`${{ env.IMAGE_REF }}\`"
+            echo "- Source CI run: \`${{ github.event.workflow_run.run_number }}\`"
+            echo "- Source commit: \`${{ github.event.workflow_run.head_sha }}\`"
+            echo "- Namespace: \`devsu-demo\`"
+          } >> "$GITHUB_STEP_SUMMARY"
